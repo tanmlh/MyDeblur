@@ -86,16 +86,25 @@ def get_discriminator(net_conf):
 def get_perceptual_net(net_conf):
     conv_3_3_layer = 14
     vgg19 = tv.models.vgg19(pretrained=True).features
-    res = nn.Sequential()
-    res.add_module('vgg_avg_pool', nn.AvgPool2d(kernel_size=4, stride=4))
+    perceptual_net = nn.Sequential()
+    perceptual_net.add_module('vgg_avg_pool', nn.AvgPool2d(kernel_size=4, stride=4))
     for i,layer in enumerate(list(vgg19)):
-        res.add_module('vgg_'+str(i),layer)
+        perceptual_net.add_module('vgg_'+str(i),layer)
         if i == conv_3_3_layer:
             break
-    for param in res.parameters():
+    for param in perceptual_net.parameters():
         param.requires_grad = False
 
-    return res
+    # pdb.set_trace()
+    """
+    perceptual_net = networks.Generator_Encoder()
+    state = torch.load('./checkpoints/45_NO_Skip.pth')
+    perceptual_net.load_state_dict(state['state_dict'], strict=False)
+    for param in perceptual_net.parameters():
+        param.requires_grad = False
+    """
+
+    return perceptual_net
 
 class ConditionalGANSolver(BaseSolver):
     def init_tensors(self):
@@ -103,6 +112,8 @@ class ConditionalGANSolver(BaseSolver):
         self.tensors['real_A'] = torch.FloatTensor()
         self.tensors['real_B'] = torch.FloatTensor()
         self.tensors['fake_B'] = torch.FloatTensor()
+
+
         self.tensors['gan_real_label'] = torch.FloatTensor()
         self.tensors['gan_fake_label'] = torch.FloatTensor()
 
@@ -115,8 +126,9 @@ class ConditionalGANSolver(BaseSolver):
         self.tensors['real_A'].resize_(real_A.size()).copy_(real_A)
         self.tensors['real_B'].resize_(real_B.size()).copy_(real_B)
 
+
     def process_batch(self, batch, phase='train'):
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
         optimizers = self.optimizers
         self.set_tensors(batch)
 
@@ -142,17 +154,16 @@ class ConditionalGANSolver(BaseSolver):
                 loss_D.backward(retain_graph=True)
                 optimizers['discriminator'].step()
             else:
-                with torch.no_grad():
-                    loss_D, state2 = self.nets.forward_D(self.tensors, 'val')
+                state2 = {}
 
-        for key, value in state2.items():
-            state[key] = value
+        # for key, value in state2.items():
+        #     state[key] = value
 
         real_A = self.tensors['real_A'].detach().cpu().numpy()
         real_B = self.tensors['real_B'].detach().cpu().numpy()
         fake_B = self.tensors['fake_B'].detach().cpu().numpy()
 
-        visual = get_visual(real_A, fake_B, real_B)
+        visual = get_visual(real_A[:, 0:3, :, :], fake_B, real_B)
 
         psnr = []
         for i in range(real_B.shape[0]):
@@ -161,6 +172,12 @@ class ConditionalGANSolver(BaseSolver):
 
         state['image|image'] = visual
         state['scalar|psnr'] = sum(psnr) / len(psnr)
+
+        state['else|fake_B'] = nn.functional.interpolate(self.tensors['fake_B'].detach().cpu(),
+                                                         scale_factor=(2, 2), mode='bilinear',
+                                                         align_corners=False)
+
+        # state['else|fake_B'] = self.tensors['fake_B'].detach().cpu()
         return state
 
 class ConditionalGANModule(BaseModule):
@@ -170,10 +187,11 @@ class ConditionalGANModule(BaseModule):
         self.net_conf = net_conf
         self.net = {}
 
-        if net_conf['use_perceptual']:
-            self.net['perceptual'] = get_perceptual_net(net_conf)
         self.net['generator'] = get_generator(net_conf)
-        self.net['discriminator'] = get_discriminator(net_conf)
+        if net_conf['loss_weights']['perceptual'] != 0:
+            self.net['perceptual'] = get_perceptual_net(net_conf)
+        if net_conf['loss_weights']['GAN'] != 0:
+            self.net['discriminator'] = get_discriminator(net_conf)
 
         self.mse_loss_fun = nn.MSELoss()
         self.l1_loss_fun = nn.L1Loss()
@@ -185,19 +203,13 @@ class ConditionalGANModule(BaseModule):
 
         res = self.net['generator'](real_A)
         fake_B = res['output']
-        # real_A_feature = res['feature1']
-
-
         tensors['fake_B'] = fake_B
 
-        """ feature loss """
-        # if self.net_conf['use_feature_loss']:
-        # res = self.net['generator'](real_B, return_feature=True)
-        # real_B_feature = res['feature1']
-        # loss_feature = self.mse_loss_fun(real_A_feature, real_B_feature)
+        loss_weights = self.net_conf['loss_weights'] # perceptual, pix2pix, ssim, GAN
+        loss_perceptual, loss_pix2pix, loss_ssim, loss_GAN = 0, 0, 0, 0
 
         """ perceptual loss """
-        if self.net_conf['use_perceptual']:
+        if loss_weights['perceptual'] != 0:
             f_fake_B = self.net['perceptual'](fake_B)
             with torch.no_grad():
                 f_real_B = self.net['perceptual'](real_B)
@@ -205,51 +217,49 @@ class ConditionalGANModule(BaseModule):
             loss_perceptual = self.mse_loss_fun(f_fake_B, f_real_B.detach())
 
         """ mse loss"""
+        if loss_weights['pix2pix'] != 0:
+            loss_pix2pix = self.mse_loss_fun(fake_B, real_B)
+            # loss_pix2pix_1 = self.mse_loss_fun(nn.functional.avg_pool2d(fake_B, 3, 3),
+            #                                  nn.functional.avg_pool2d(real_B, 3, 3))
+            # loss_pix2pix_2 = self.mse_loss_fun(nn.functional.avg_pool2d(fake_B, 9, 9),
+            #                                  nn.functional.avg_pool2d(real_B, 9, 9))
+            # loss_pix2pix_3 = self.mse_loss_fun(nn.functional.avg_pool2d(fake_B, 27, 27),
+            #                                  nn.functional.avg_pool2d(real_B, 27, 27))
+            # loss_pix2pix = (loss_pix2pix_1 + loss_pix2pix_2 + loss_pix2pix_3 + loss_pix2pix_4) / 4.0
 
-        # loss_pix2pix_1 = self.mse_loss_fun(nn.functional.avg_pool2d(fake_B, 3, 3),
-        #                                  nn.functional.avg_pool2d(real_B, 3, 3))
 
-        # loss_pix2pix_2 = self.mse_loss_fun(nn.functional.avg_pool2d(fake_B, 9, 9),
-        #                                  nn.functional.avg_pool2d(real_B, 9, 9))
-
-        # loss_pix2pix_3 = self.mse_loss_fun(nn.functional.avg_pool2d(fake_B, 27, 27),
-        #                                  nn.functional.avg_pool2d(real_B, 27, 27))
-
-        loss_pix2pix = self.mse_loss_fun(fake_B, real_B)
-        # loss_pix2pix = (loss_pix2pix_1 + loss_pix2pix_2 + loss_pix2pix_3 + loss_pix2pix_4) / 4.0
-
-        """ SSIM loss """
-        # loss_SSIM = 1 - metrics.SSIM(fake_B, real_B)
+        """ ssim loss """
+        if loss_weights['ssim'] != 0:
+            loss_ssim, ssim_map = metrics.SSIM(fake_B, real_B)
+            loss_ssim = 1 - loss_ssim
 
         """ GAN loss """
-        if self.net_conf['gan_type'] == 'wgan-gp':
-            loss_GAN = self.get_wgan_gp_loss(tensors, loss_type='generator')
+        if loss_weights['GAN'] != 0:
+            if self.net_conf['gan_type'] == 'wgan-gp':
+                loss_GAN = self.get_wgan_gp_loss(tensors, loss_type='generator')
 
-        elif self.net_conf['gan_type'] == 'gan':
-            loss_GAN = self.get_gan_loss(tensors, loss_type='generator')
+            elif self.net_conf['gan_type'] == 'gan':
+                loss_GAN = self.get_gan_loss(tensors, loss_type='generator')
 
-        else:
-            raise ValueError
+            elif self.net_conf['gan_type'] is None:
+                loss_GAN = 0
 
         """ Final loss """
-        # loss_total = 5 * loss_pix2pix + 1 * loss_GAN + 5 * loss_SSIM + (0.2 * loss_perceptual if self.net_conf['use_perceptual'] else 0) + (0.2 * loss_feature if self.net_conf['use_feature_loss'] else 0)
-        # loss_total = 1 * loss_GAN + 5 * loss_SSIM + (0.1 * loss_feature if self.net_conf['use_feature_loss'] else 0)
-        # loss_total = 5 * loss_pix2pix + 1 * loss_GAN + 5 * loss_SSIM + (0.2 * loss_perceptual if self.net_conf['use_perceptual'] else 0) + (0.2 * loss_feature if self.net_conf['use_feature_loss'] else 0)
-        loss_total = 1 * loss_GAN +  10 * loss_pix2pix + 0.1 * loss_perceptual
-
-        # loss_total = loss_GAN + (loss_perceptual if self.net_conf['use_perceptual'] else 0)
+        loss_total = loss_weights['perceptual'] * loss_perceptual + loss_weights['pix2pix'] * loss_pix2pix + loss_weights['ssim'] * loss_ssim + loss_weights['GAN'] * loss_GAN
 
         # feature_img_real_A = (torch.clamp(real_A_feature[0, 0], -1, 1).unsqueeze(0).detach().cpu().numpy()) / 2.0 * 255.0
         # feature_img_real_B = (torch.clamp(real_B_feature[0, 0], -1, 1).unsqueeze(0).detach().cpu().numpy()) / 2.0 * 255.0
         # feature_img = np.concatenate([feature_img_real_A, feature_img_real_B], axis=2)
+        ssim_map = (torch.clamp(ssim_map[0], -1, 1).detach().cpu()) / 2.0 if loss_weights['ssim'] != 0 else None
 
-        state = {'scalar|loss_perceptual': loss_perceptual.item() if self.net_conf['use_perceptual'] else 0,
-                 'scalar|loss_pix2pix': loss_pix2pix.item(),
-                 # 'scalar|loss_feaeture': loss_feature.item() if self.net_conf['use_feature_loss'] else 0,
-                 # 'scalar|loss_ssim': loss_SSIM.item(),
-                 'scalar|loss_G_GAN': loss_GAN.item(),
-                 'scalar|loss_G_total': loss_total.item()}
-                 # 'image|feature_img': feature_img.astype(np.uint8)}
+        # pdb.set_trace()
+
+        state = {'scalar|loss_perceptual': loss_perceptual.item() if loss_weights['perceptual'] != 0 else 0,
+                 'scalar|loss_pix2pix': loss_pix2pix.item() if loss_weights['pix2pix'] != 0 else 0,
+                 'scalar|loss_ssim': loss_ssim.item() if loss_weights['ssim'] != 0 else 0,
+                 'scalar|loss_G_GAN': loss_GAN.item() if loss_weights['GAN'] != 0 else 0,
+                 'scalar|loss_G_total': loss_total.item() if type(loss_total) != int else 0,
+                 'image|ssim_map': ssim_map if loss_weights['ssim'] != 0 else None}
 
         return loss_total, state
 

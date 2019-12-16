@@ -178,19 +178,19 @@ class BaseSolver:
             cur_state = self.process_batch(batch, phase)
             self.global_step = self.global_step + 1
 
-            if idx % 20 == 0:
+            if idx % 20 == 19:
                 self.summary_write_state(cur_state, phase)
                 for key, value in cur_state.items():
                     if key.split('|')[0] == 'scalar':
                         if key not in epoch_state:
-                            epoch_state[key] = 0
-                        epoch_state[key] = epoch_state[key] + cur_state[key]
+                            epoch_state[key] = []
+                        epoch_state[key].append(cur_state[key])
             tq.set_postfix({'psnr': cur_state['scalar|psnr']})
 
         tq.close()
 
         for key, value in epoch_state.items():
-            epoch_state[key] = epoch_state[key] / len(data_loader)
+            epoch_state[key] = sum(epoch_state[key]) / len(epoch_state[key])
 
         return epoch_state
 
@@ -199,7 +199,7 @@ class BaseSolver:
             prefix, name = key.split('|')
             if prefix == 'scalar':
                 self.summary_writer.add_scalar(phase+'_'+name, value, global_step=self.global_step)
-            elif prefix == 'image':
+            elif prefix == 'image' and value is not None:
                 self.summary_writer.add_image(phase+'_'+name, value, global_step=self.global_step)
             elif prefix == 'graph':
                 self.summary_writer.add_graph(*value)

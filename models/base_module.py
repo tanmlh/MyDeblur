@@ -45,5 +45,5 @@ class BaseModule(torch.nn.Module):
     def load_net_state(self, state):
         for key, value in self.net.items():
             if key in state:
-                value.load_state_dict(state[key])
+                value.load_state_dict(state[key], strict=False)
 

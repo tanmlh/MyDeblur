@@ -22,9 +22,10 @@ def get_norm_layer(norm_type='instance'):
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-        if hasattr(m.bias, 'data'):
-            m.bias.data.fill_(0)
+        if hasattr(m, 'weight'):
+            m.weight.data.normal_(0.0, 0.02)
+            if hasattr(m.bias, 'data'):
+                m.bias.data.fill_(0)
     elif classname.find('BatchNorm2d') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
@@ -100,10 +101,26 @@ class ResnetGenerator(nn.Module):
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
+        kernel_size = [5, 5, 5, 5]
+        dilation = [2, 2, 2, 2]
+        stride = [3, 3, 3, 3]
+        padding = [4, 4, 4, 4]
+        output_padding = [2, 2, 2, 2]
+
+        channels = [64, 128, 256, 512, 1024]
+        """
+        kernel_size = [9, 7, 5, 3]
+        dilation = [1, 1, 1, 1]
+        stride = [4, 4, 4, 2]
+        padding = [4, 3, 2, 1]
+        output_padding = [3, 3, 3, 1]
+        channels = [48, 64, 128, 256, 512]
+        """
+
         self.first = [
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(num_in_chns, 64, kernel_size=7, bias=use_bias, dilation=1),
-            norm_layer(64),
+            nn.ReflectionPad2d(5),
+            nn.Conv2d(num_in_chns, channels[0], kernel_size=11, bias=use_bias, dilation=1),
+            norm_layer(channels[0]),
             nn.ReLU(True),
         ]
         self.first = nn.Sequential(*self.first)
@@ -118,143 +135,116 @@ class ResnetGenerator(nn.Module):
         # 		nn.ReLU(True)
         # 	]
 
-        kernel_size = 5
-        dilation = 2
-        stride = 2
-        padding = 4
-        output_padding = 1
 
 
-        self.down_sample_0 = [nn.Conv2d(64, 64, kernel_size=kernel_size, stride=stride,
-                                        padding=padding, bias=use_bias, dilation=dilation),
-                                        norm_layer(64), nn.ReLU(True)]
+
+        self.down_sample_0 = [nn.Conv2d(channels[0], channels[1], kernel_size=kernel_size[0], stride=stride[0],
+                                        padding=padding[0], bias=use_bias, dilation=dilation[0]),
+                                        norm_layer(channels[1]), nn.ReLU(True)]
         self.down_sample_0 = nn.Sequential(*self.down_sample_0)
 
 
-        self.down_sample_1 = [nn.Conv2d(64, 128, kernel_size=kernel_size, stride=stride,
-                                        padding=padding, bias=use_bias, dilation=dilation),
-                                        norm_layer(128), nn.ReLU(True)]
+        self.down_sample_1 = [nn.Conv2d(channels[1], channels[2], kernel_size=kernel_size[1], stride=stride[1],
+                                        padding=padding[1], bias=use_bias, dilation=dilation[1]),
+                                        norm_layer(channels[2]), nn.ReLU(True)]
         self.down_sample_1 = nn.Sequential(*self.down_sample_1)
 
-        self.down_sample_2 = [nn.Conv2d(128, 256, kernel_size=kernel_size, stride=stride,
-                                        padding=padding, bias=use_bias, dilation=dilation),
-                                        norm_layer(256), nn.ReLU(True)]
+        self.down_sample_2 = [nn.Conv2d(channels[2], channels[3], kernel_size=kernel_size[2], stride=stride[2],
+                                        padding=padding[2], bias=use_bias, dilation=dilation[2]),
+                                        norm_layer(channels[3]), nn.ReLU(True)]
         self.down_sample_2 = nn.Sequential(*self.down_sample_2)
 
+        self.down_sample_3 = [nn.Conv2d(channels[3], channels[4], kernel_size=kernel_size[3], stride=stride[3],
+                                        padding=padding[3], bias=use_bias, dilation=dilation[3]),
+                                        norm_layer(channels[4]), nn.ReLU(True)]
+        self.down_sample_3 = nn.Sequential(*self.down_sample_3)
 
-
-        """
-        model += [
-            nn.Conv2d(32, 64, kernel_size=kernel_size, stride=stride, padding=padding, bias=use_bias, dilation=dilation),
-            norm_layer(64),
-            nn.ReLU(True),
-
-            nn.Conv2d(64, 128, kernel_size=kernel_size, stride=stride, padding=padding, bias=use_bias, dilation=dilation),
-            norm_layer(128),
-            nn.ReLU(True),
-
-            nn.Conv2d(128, 256, kernel_size=kernel_size, stride=stride, padding=padding, bias=use_bias, dilation=dilation),
-            norm_layer(256),
-            nn.ReLU(True)
-        ]
-        """
-
-        # 中间的残差网络
-        # mult = 2**n_downsampling
         model = []
         for i in range(n_blocks):
-            # model += [
-            # 	ResnetBlock(
-            # 		ngf * mult, padding_type=padding_type, norm_layer=norm_layer,
-            # 		use_dropout=use_dropout, use_bias=use_bias)
-            # ]
             model += [
-                ResnetBlock(256, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)
+                ResnetBlock(channels[4], padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)
             ]
 
-        # 上采样
-        # for i in range(n_downsampling):
-        # 	mult = 2**(n_downsampling - i)
-        #
-        # 	model += [
-        # 		nn.ConvTranspose2d(
-        # 			ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2,
-        # 			padding=1, output_padding=1, bias=use_bias),
-        # 		norm_layer(int(ngf * mult / 2)),
-        # 		nn.ReLU(True)
-        # 	]
-        self.up_sample_0 = [nn.ConvTranspose2d(256, 128, kernel_size=kernel_size, stride=stride,
-                                               padding=padding, output_padding=output_padding,
-                                               bias=use_bias, dilation=dilation),
-                            norm_layer(128),
+
+        self.up_sample_0 = [nn.ConvTranspose2d(channels[4], channels[3], kernel_size=kernel_size[3], stride=stride[3],
+                                               padding=padding[3], output_padding=output_padding[3],
+                                               bias=use_bias, dilation=dilation[3]),
+                            norm_layer(channels[3]),
                             nn.ReLU(True)]
         self.up_sample_0 = nn.Sequential(*self.up_sample_0)
 
-        self.up_sample_1 = [nn.ConvTranspose2d(128*2, 64, kernel_size=kernel_size, stride=stride,
-                                               padding=padding, output_padding=output_padding, bias=use_bias, dilation=dilation),
-                            norm_layer(64),
+        self.up_sample_1 = [nn.ConvTranspose2d(channels[3], channels[2], kernel_size=kernel_size[2], stride=stride[2],
+                                               padding=padding[1], output_padding=output_padding[2],
+                                               bias=use_bias, dilation=dilation[2]),
+                            norm_layer(channels[2]),
                             nn.ReLU(True)]
         self.up_sample_1 = nn.Sequential(*self.up_sample_1)
 
-        self.up_sample_2 = [nn.ConvTranspose2d(64*2, 64, kernel_size=kernel_size, stride=stride,
-                                               padding=padding, output_padding=output_padding, bias=use_bias, dilation=dilation),
-                            norm_layer(64),
+        self.up_sample_2 = [nn.ConvTranspose2d(channels[2], channels[1], kernel_size=kernel_size[1], stride=stride[1],
+                                               padding=padding[1], output_padding=output_padding[1],
+                                               bias=use_bias, dilation=dilation[1]),
+                            norm_layer(channels[1]),
                             nn.ReLU(True)]
         self.up_sample_2 = nn.Sequential(*self.up_sample_2)
 
-        """
-        model += [
-            nn.ConvTranspose2d(256, 128, kernel_size=kernel_size, stride=stride, padding=padding,
-                               output_padding=0, bias=use_bias, dilation=dilation),
-            norm_layer(128),
-            nn.ReLU(True),
+        self.up_sample_3 = [nn.ConvTranspose2d(channels[1], channels[0], kernel_size=kernel_size[0], stride=stride[0],
+                                               padding=padding[0], output_padding=output_padding[0],
+                                               bias=use_bias, dilation=dilation[0]),
+                            norm_layer(channels[0]),
+                            nn.ReLU(True)]
+        self.up_sample_3 = nn.Sequential(*self.up_sample_3)
 
-            nn.ConvTranspose2d(128, 64, kernel_size=kernel_size, stride=stride, padding=padding,
-                               output_padding=0, bias=use_bias, dilation=dilation),
-            norm_layer(64),
-            nn.ReLU(True),
-
-            nn.ConvTranspose2d(64, 32, kernel_size=kernel_size, stride=stride, padding=padding,
-                               output_padding=0, bias=use_bias, dilation=dilation),
-            norm_layer(32),
-            nn.ReLU(True),
-        ]
-        """
 
         self.final = [
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(128, num_out_chns, kernel_size=7, dilation=1),
+            nn.ReflectionPad2d(5),
+            nn.Conv2d(channels[0]*2, num_out_chns, kernel_size=11, dilation=1),
             nn.Tanh()
         ]
         self.final = nn.Sequential(*self.final)
 
         self.model = nn.Sequential(*model)
 
-    def forward(self, input, return_feature=False):
+        """
+        self.feature_net = Generator_Encoder()
+        state = torch.load('./checkpoints/45_NO_Skip.pth')
+        self.feature_net.load_state_dict(state['state_dict'], strict=False)
+        for param in self.feature_net.parameters():
+            param.requires_grad = False
+        """
 
-        # pdb.set_trace()
-        x0 = self.first(input)
+        torch.cuda.empty_cache()
 
-        x1 = self.down_sample_0(x0)
-        x2 = self.down_sample_1(x1)
-        x3 = self.down_sample_2(x2)
+    def forward(self, input):
 
-        x4 = self.model(x3)
-        if return_feature:
-            return {'feature1': x0, 'feature2': x4}
+        # y = self.feature_net(input)
+        # y = nn.functional.interpolate(y, size=(input.shape[2]//27, input.shape[3]//27)).detach()
 
-        x5 = self.up_sample_0(x4)
-        x6 = self.up_sample_1(torch.cat([x5, x2], dim=1))
-        x7 = self.up_sample_2(torch.cat([x6, x1], dim=1))
+        feature = self.first(input)
 
-        output = self.final(torch.cat([x7, x0], dim=1))
+        x = self.down_sample_0(feature)
+        x = self.down_sample_1(x)
+        x = self.down_sample_2(x)
+        x = self.down_sample_3(x)
+
+        # x = torch.cat([x, y], dim=1)
+        x = self.model(x)
+
+        x = self.up_sample_0(x)
+        x = self.up_sample_1(x)
+        x = self.up_sample_2(x)
+        x = self.up_sample_3(x)
+
+        output = self.final(torch.cat([x, feature], dim=1))
+        # output = nn.functional.interpolate(output, scale_factor=(2, 2))
 
         if self.learn_residual:
-            output = input + output
+            output = input[:, 0:3, :, :] + output
 
         output = torch.clamp(output, min=-1, max=1)
 
-        res = {'output': output, 'feature1': x0, 'feature2': x4}
+        # pdb.set_trace()
+
+        res = {'output': output, 'feature1': None, 'feature2': None}
 
         return res
 
@@ -262,92 +252,41 @@ class ResnetGenerator(nn.Module):
 # Define a resnet block
 class ResnetBlock(nn.Module):
 
-	def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-		super(ResnetBlock, self).__init__()
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        super(ResnetBlock, self).__init__()
 
-		padAndConv = {
-			'reflect': [
+        padAndConv = {
+            'reflect': [
                 nn.ReflectionPad2d(1),
                 nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)],
-			'replicate': [
+            'replicate': [
                 nn.ReplicationPad2d(1),
                 nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)],
-			'zero': [
+            'zero': [
                 nn.Conv2d(dim, dim, kernel_size=3, padding=1, bias=use_bias)]
-		}
+        }
 
-		try:
-			blocks = padAndConv[padding_type] + [
-				norm_layer(dim),
-				nn.ReLU(True)
+        try:
+            blocks = padAndConv[padding_type] + [
+                norm_layer(dim),
+                nn.ReLU(True)
             ] + [
-				nn.Dropout(0.5)
-			] if use_dropout else [] + padAndConv[padding_type] + [
-				norm_layer(dim)
-			]
-		except:
-			raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+                nn.Dropout(0.5)
+            ] if use_dropout else [] + padAndConv[padding_type] + [
+                norm_layer(dim)
+            ]
+        except:
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
 
-		self.conv_block = nn.Sequential(*blocks)
+        self.conv_block = nn.Sequential(*blocks)
 
-		# self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
-		# def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-		#     padAndConv = {
-		#         'reflect': [nn.ReflectionPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)],
-		#         'replicate': [nn.ReplicationPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)],
-		#         'zero': [nn.Conv2d(dim, dim, kernel_size=3, padding=1, bias=use_bias)]
-		#     }
-		#     try:
-		#         blocks = [
-		#             padAndConv[padding_type],
-		#
-		#             norm_layer(dim),
-		#             nn.ReLU(True),
-		#             nn.Dropout(0.5) if use_dropout else None,
-		#
-		#             padAndConv[padding_type],
-		#
-		#             norm_layer(dim)
-		#         ]
-		#     except:
-		#         raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-		#
-		#     return nn.Sequential(*blocks)
+    def forward(self, x):
+        out = x + self.conv_block(x)
+        return out
 
-		# blocks = []
-		# if padding_type == 'reflect':
-		# 	blocks += [nn.ReflectionPad2d(1),  nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)]
-		# elif padding_type == 'replicate':
-		# 	blocks += [nn.ReplicationPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)]
-		# elif padding_type == 'zero':
-		# 	blocks += [nn.Conv2d(dim, dim, kernel_size=3, padding=1, bias=use_bias)]
-		# else:
-		# 	raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-		#
-		# blocks += [
-		# 	norm_layer(dim),
-		# 	nn.ReLU(True),
-		# 	nn.Dropout(0.5) if use_dropout else None
-		# ]
-		#
-		# if padding_type == 'reflect':
-		# 	blocks += [nn.ReflectionPad2d(1),  nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)]
-		# elif padding_type == 'replicate':
-		# 	blocks += [nn.ReplicationPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)]
-		# elif padding_type == 'zero':
-		# 	blocks += [nn.Conv2d(dim, dim, kernel_size=3, padding=1, bias=use_bias)]
-		# else:
-		# 	raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-		#
-		# blocks += [
-		# 	norm_layer(dim)
-		# ]
-		#
-		# return nn.Sequential(*blocks)
+    def cuda(self):
+        self.conv_block.cuda()
 
-	def forward(self, x):
-		out = x + self.conv_block(x)
-		return out
 
 
 # Defines the Unet generator.
@@ -510,3 +449,129 @@ class NLayerDiscriminator(nn.Module):
 
     def forward(self, input):
         return self.model(input)
+
+class ConvLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, dilation = 1):
+        super(ConvLayer, self).__init__()
+        reflection_padding = kernel_size//2
+        self.reflection_pad = nn.ReflectionPad2d(reflection_padding)
+        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
+        self.instance = nn.InstanceNorm2d(out_channels)
+
+    def forward(self, x):
+        out = self.reflection_pad(x)
+        out = self.conv2d(out)
+        out = self.instance(out)
+        return (out)
+
+class ResidualBlock(torch.nn.Module):
+    def __init__(self, in_channels = 64, out_channels = 64, scale = 1, dilation = 1, stride = 1, attention = False, nonliner = 'LeakyReLU'):
+        super(ResidualBlock, self).__init__()
+
+        self.Attention = attention
+
+        self.conv1 = ConvLayer(in_channels, in_channels, kernel_size=3, stride=stride, dilation = dilation)
+        self.conv2 = ConvLayer(in_channels, out_channels, kernel_size=3, stride=1, dilation = 1)
+        if nonliner == 'LeakyReLU':
+          self.activation = nn.LeakyReLU(0.2)
+        else:
+          self.activation = nn.ReLU()
+
+        self.downsample = None
+        if in_channels != out_channels or stride !=1:
+          self.downsample = nn.Sequential(
+                              nn.Conv2d(in_channels, out_channels, kernel_size = 1, stride = stride, padding = 0),
+                              nn.InstanceNorm2d(out_channels),
+          )
+        
+        if attention:
+          self.linear1 = nn.Linear(out_channels, out_channels//32)
+          self.linear2 = nn.Linear(out_channels//32, out_channels)
+          self.global_pooling = nn.AdaptiveAvgPool2d((1,1))
+        
+        #self.dropout = nn.Dropout(0.2)
+        
+    def attention(self, x):
+        N, C, H, W = x.size()
+        out = torch.flatten(self.global_pooling(x), 1)
+        out = nn.functional.relu(self.linear1(out))
+        out = torch.sigmoid(self.linear2(out)).view(N, C, 1, 1)
+    
+        return out*x
+        
+    def forward(self, x):
+        residual = x
+        if self.downsample is not None:
+          residual = self.downsample(residual)
+        out = self.activation(self.conv1(x))
+        out = self.conv2(out)
+        if self.Attention:
+          out = self.attention(out)
+        out = torch.add(out, residual)
+        out = self.activation(out)
+        #out = self.dropout(out)
+        return out
+
+
+class Generator_Encoder(nn.Module):
+    def __init__(self, res_blocks=18):
+        super(Generator_Encoder, self).__init__()
+        self.scale_factor = 1
+        rgb_mean = (0.5204, 0.5167, 0.5129)
+        '''
+        ResNet = models.resnet34(pretrained = True)
+        self.conv_input = nn.Sequential(
+                            ResNet.conv1,
+                            ResNet.bn1,
+                            ResNet.relu,
+                            ResNet.maxpool
+                            )
+        
+        self.conv2x = ResNet.layer1
+        
+        self.conv4x = ResNet.layer2
+        
+        self.conv8x = ResNet.layer3
+       
+        self.conv16x = ResNet.layer4
+        del ResNet
+        torch.cuda.empty_cache()
+        '''
+        self.conv_input = nn.Sequential(
+                          ConvLayer(3, 64*self.scale_factor, kernel_size = 7, stride = 1),
+                          nn.ReLU(),
+                          #nn.ReflectionPad2d(3),
+                          #nn.Conv2d(3, 64*self.scale_factor, kernel_size = 7, stride = 1)
+                          )
+                          
+        self.conv2x = nn.Sequential(
+                          ConvLayer(64*self.scale_factor, 64*self.scale_factor, kernel_size=3, stride=1),
+                          nn.ReLU(),
+                          ConvLayer(64*self.scale_factor, 128*self.scale_factor, kernel_size=3, stride=2),
+                          nn.ReLU(),
+                          ConvLayer(128*self.scale_factor, 128*self.scale_factor, kernel_size=3, stride=1),
+                          nn.ReLU(),
+                          ConvLayer(128*self.scale_factor, 256*self.scale_factor, kernel_size=3, stride=2),
+                          nn.ReLU(),
+                          )
+                          
+        self.conv4x = nn.Sequential(
+                          ResidualBlock(256*self.scale_factor, 512*self.scale_factor, stride = 2, attention = True, nonliner = 'ReLU'),
+                          )
+                          
+        self.conv8x = nn.Sequential(
+                          ResidualBlock(512*self.scale_factor, 1024*self.scale_factor, stride = 2, attention = True, nonliner = 'ReLU'),
+                          )
+                          
+        # self.conv16x = nn.Sequential(
+        #                   ResidualBlock(1024*self.scale_factor, 2048*self.scale_factor, stride = 2, attention = True, nonliner = 'ReLU'),
+        #                   )
+
+    def forward(self, x):
+        x = nn.functional.avg_pool2d(x, 3, 3)
+        res1x = self.conv_input(x)
+        res2x = self.conv2x(res1x)
+        res4x  = self.conv4x(res2x)
+        res8x = self.conv8x(res4x)
+        # res16x = self.conv16x(res8x)
+        return res8x

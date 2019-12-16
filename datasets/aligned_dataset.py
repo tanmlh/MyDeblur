@@ -32,9 +32,8 @@ class AlignedDataset():
 
         imgs_path = []
         for i, line in enumerate(path):
-            if int(line[-1]) >= 2304 and int(line[-2]) >= 3456:
+            if int(line[-1]) >= loader_conf['crop_size'][1] and int(line[-2]) >= loader_conf['crop_size'][0]:
                 imgs_path.append(line)
-
         # if phase == 'val':
         #     imgs_path = imgs_path[:100]
 
@@ -63,6 +62,9 @@ class AlignedDataset():
             A = Image.open(os.path.join(self.dataset_dir, self.imgs_path[idx][0])).convert('RGB')
             B = Image.open(os.path.join(self.dataset_dir, self.imgs_path[idx][1])).convert('RGB')
 
+            if self.loader_conf['use_low_iso']:
+                C = Image.open(os.path.join(self.dataset_dir, self.imgs_path[idx][2])).convert('RGB')
+
         crop_params = transforms.RandomCrop.get_params(A, output_size=self.loader_conf['crop_size'])
         A = TF.crop(A, *crop_params)
         B = TF.crop(B, *crop_params)
@@ -70,11 +72,14 @@ class AlignedDataset():
         A = self.transform(A)
         B = self.transform(B)
 
-        A_path = self.imgs_path[idx][0]
-        B_path = self.imgs_path[idx][1]
+        if self.loader_conf['use_low_iso']:
+            C = TF.crop(C, *crop_params)
+            C = self.transform(C)
+            A = torch.cat([A, C], dim=0)
 
-        res = {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path}
+        res = {'A': A, 'B': B, 'path': ' '.join(self.imgs_path[idx])}
         return res
 
     def __len__(self):
         return len(self.imgs_path)
+

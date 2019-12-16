@@ -40,3 +40,5 @@ if __name__ == '__main__':
         solver.train(train_loader, val_loader)
     else:
         state = solver.test(val_loader)
+        imgs = state['image|image']
+

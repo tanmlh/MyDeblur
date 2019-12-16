@@ -17,7 +17,7 @@ def create_window(window_size, channel):
 
 def SSIM(img1, img2):
     (_, channel, _, _) = img1.size()
-    window_size = 11
+    window_size = 31
     window = create_window(window_size, channel).cuda()
     mu1 = F.conv2d(img1, window, padding = window_size//2, groups = channel)
     mu2 = F.conv2d(img2, window, padding = window_size//2, groups = channel)
@@ -34,7 +34,7 @@ def SSIM(img1, img2):
     C2 = 0.03**2
 
     ssim_map = ((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2))
-    return ssim_map.mean()
+    return ssim_map.mean(), ssim_map
 
 def rgb2yuv(rgb):
     r = rgb[0, :, :]
